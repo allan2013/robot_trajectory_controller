@@ -1,0 +1,18 @@
+uint8 GET_CURRENT_STATE=0
+uint8 MOVE_JOINT=1
+uint8 MOVE_POSE=2
+uint8 CANCEL_GOAL=3
+uint8 GET_DI=4
+uint8 SET_DO=5
+int32 cmd_id
+int32 type
+float64[] target_joints
+geometry_msgs/Pose target_pose
+uint32 io_address
+uint32 io_value
+---
+int32 cmd_id
+bool is_moving
+float64[] current_joints
+geometry_msgs/Pose current_pose
+uint32 io_value

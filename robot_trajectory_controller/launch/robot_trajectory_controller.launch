@@ -1,0 +1,32 @@
+<launch>
+    <arg name="ip" default="192.168.1.100"/>
+    <arg name="robot_type" default="CRX-10iA"/>
+    <arg name="license" default="/home/tokano/license.data"/>
+    <include file="$(find fanuc_ros_driver)/launch/fanuc_interface.launch">
+        <arg name="ip" value="$(arg ip)"/>
+        <arg name="robot_type" value="$(arg robot_type)"/>
+        <arg name="license" value="$(arg license)"/>
+    </include>
+    
+    <include file="$(find crx10ia_moveit_config)/launch/planning_context.launch">
+        <arg name="load_robot_description" value="true"/>
+    </include>
+  
+    <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" respawn="true" output="screen"/>
+
+    <!-- Run the main MoveIt! executable without trajectory execution (we do not have controllers configured by default) -->
+    <include file="$(find crx10ia_moveit_config)/launch/move_group.launch">
+        <arg name="allow_trajectory_execution" value="true"/>
+        <arg name="fake_execution" value="true"/>
+        <arg name="info" value="true"/>
+        <arg name="debug" value="false"/>
+    </include>
+
+    <!-- Run Rviz and load the default config to see the state of the move_group node -->
+    <include file="$(find crx10ia_moveit_config)/launch/moveit_rviz.launch">
+        <arg name="config" value="true"/>
+        <arg name="debug" value="false"/>
+    </include>
+  
+    <node name="robot_trajectory_controller" pkg="robot_trajectory_controller" type="controller_server.py" output="screen"/>
+</launch>
