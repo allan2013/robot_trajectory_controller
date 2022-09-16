@@ -80,7 +80,6 @@ class ControllerServer():
         if req.type == ServerCommandRequest.GET_CURRENT_STATE:
             res.current_joints = self.get_current_joints()
             res.current_pose = self.get_current_ee_pose()
-            res.cmd_id = req.cmd_id
         elif req.type == ServerCommandRequest.MOVE_JOINT:
             if self.move_joints(req.target_joints) is False:
                 res.cmd_id = -req.cmd_id
@@ -97,6 +96,11 @@ class ControllerServer():
         elif req.type == ServerCommandRequest.SET_DO:
             if self.write_single_io(req.io_address, req.io_value) is False:
                 res_cmd_id = -req.cmd_id
+        elif req.type = ServerCommandRequest.SET_VELOCITY:
+            res.speed = self.set_spped(0, req.speed);
+        elif req.type = ServerCommandRequest.SET_ACCELRATION:
+            res.speed = self.set_spped(1, req.speed);
+
         return res
 
     def connect_move_group(self,robot_name='arm'):
@@ -181,6 +185,18 @@ class ControllerServer():
     def move_cancel(self):
         self._trajectory_client.cancel_all_goals()
         print("Canceled")
+
+    def set_speed(self, type, speed):
+        if (speed < 0.01):
+            speed = 0.01
+        if (speed > 1.0):
+            speed = 1.0
+        if (type == 0):
+            self_._commander.set_max_velocity_scaling_factor(speed)
+            return
+        if (type == 1):
+            self_._commander.set_max_acceleration_scaling_factor(speed)
+            return
 
 def main():
     cs = ControllerServer()
