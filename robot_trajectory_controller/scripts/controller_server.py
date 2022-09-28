@@ -26,8 +26,6 @@ class ControllerServer():
         rospy.init_node('robot_trajectory_controller', anonymous=True)
         self._service = rospy.Service('server_command', ServerCommand, self.execute_command)
 
-        #self._controller_name = '/scaled_pos_joint_traj_controller/follow_joint_trajectory'
-        #self._controller_name = '/joint_trajectory_action'
         self._controller_name = '/arm_controller/follow_joint_trajectory'
 
         self.lock = threading.Lock()
@@ -46,12 +44,12 @@ class ControllerServer():
 
         rospy.loginfo("Ready")
     
-    def read_single_io(self, address):
+    def read_single_io(self, address, type):
         rospy.wait_for_service('read_single_io')
         try:
             client = rospy.ServiceProxy('read_single_io', ReadSingleIO)
             req = ReadSingleIORequest()
-            req.type = ReadSingleIORequest.TYPE_DI
+            req.type = type
             req.address = address
             res = client(req)
             return res.value
@@ -59,12 +57,12 @@ class ControllerServer():
             rospy.loginfo("ReadIo Failed.")
             return None
     
-    def write_single_io(self, address, val):
+    def write_single_io(self, address, val, type):
         rospy.wait_for_service('write_single_io')
         try:
             client = rospy.ServiceProxy('write_single_io', WriteSingleIO)
             req = WriteSingleIORequest()
-            req.type = WriteSingleIORequest.TYPE_DO
+            req.type = type
             req.address = address
             req.value = val
             client(req)
@@ -90,15 +88,22 @@ class ControllerServer():
             if self.move_cancel() is False:
                 res.cmd_id = -req.cmd_id
         elif req.type == ServerCommandRequest.GET_DI:
-            res.io_value = self.read_single_io(req.io_address)
+            res.io_value = self.read_single_io(req.io_address, ReadSingleIORequest.TYPE_DI)
+            if res.io_value is None:
+                res_cmd_id = -req.cmd_id
+        elif req.type == ServerCommandRequest.GET_RI:
+            res.io_value = self.read_single_io(req.io_address, ReadSingleIORequest.TYPE_RI)
             if res.io_value is None:
                 res_cmd_id = -req.cmd_id
         elif req.type == ServerCommandRequest.SET_DO:
-            if self.write_single_io(req.io_address, req.io_value) is False:
+            if self.write_single_io(req.io_address, req.io_value, WriteSingleIORequest.TYPE_DO) is False:
                 res_cmd_id = -req.cmd_id
-        elif req.type = ServerCommandRequest.SET_VELOCITY:
+        elif req.type == ServerCommandRequest.SET_RO:
+            if self.write_single_io(req.io_address, req.io_value, WriteSingleIORequest.TYPE_RO) is False:
+                res_cmd_id = -req.cmd_id
+        elif req.type == ServerCommandRequest.SET_VELOCITY:
             res.speed = self.set_spped(0, req.speed);
-        elif req.type = ServerCommandRequest.SET_ACCELRATION:
+        elif req.type == ServerCommandRequest.SET_ACCELRATION:
             res.speed = self.set_spped(1, req.speed);
 
         return res

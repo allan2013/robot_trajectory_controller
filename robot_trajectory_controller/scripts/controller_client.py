@@ -18,14 +18,14 @@ def main():
         rospy.loginfo(robot_state.current_joints)
         rospy.loginfo(robot_state.current_pose)
 
-        req.type = ServerCommandRequest.GET_DI
+        req.type = ServerCommandRequest.GET_RI
         req.io_address = 1
         res = client(req)
         print(res.io_value)
 
-        req.type = ServerCommandRequest.SET_DO
+        req.type = ServerCommandRequest.SET_RO
         req.io_address = 1
-        req.io_value = 1
+        req.io_value = 0
         res = client(req)
 
         val = rospy.get_param('~rotate', 60.0)
