@@ -13,10 +13,15 @@ def main():
     try:
         client = rospy.ServiceProxy('server_command', ServerCommand)
         req = ServerCommandRequest()
+        req.cmd_id = 1
         req.type = ServerCommandRequest.GET_CURRENT_STATE
         robot_state = client(req)
-        rospy.loginfo(robot_state.current_joints)
-        rospy.loginfo(robot_state.current_pose)
+        rospy.loginfo(robot_state)
+
+        req.cmd_id = 99
+        req.type = ServerCommandRequest.SET_VELOCITY
+        req.value = rospy.get_param('~vel', 0.8)
+        res = client(req)
 
         req.type = ServerCommandRequest.GET_RI
         req.io_address = 1
@@ -38,7 +43,11 @@ def main():
         req.target_joints = tj
         req.cmd_id = 3
         res = client(req)
-        print(res.cmd_id)
+
+        time.sleep(0.1)
+        req.type = ServerCommandRequest.GET_CURRENT_STATE
+        robot_state = client(req)
+        rospy.loginfo(res.is_moving)
 
         flag = rospy.get_param('~cancel', True)
         print(flag)

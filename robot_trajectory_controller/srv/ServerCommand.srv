@@ -6,15 +6,15 @@ uint8 GET_DI=4
 uint8 GET_RI=5
 uint8 SET_DO=6
 uint8 SET_RO=7
-uint8 SET_VELOCITY=6
-uint8 SET_ACCELERATION=7
+uint8 SET_VELOCITY=8
+uint8 SET_ACCELERATION=9
 int32 cmd_id
 int32 type
 float64[] target_joints
 geometry_msgs/Pose target_pose
 uint32 io_address
 uint32 io_value
-float64 speed
+float64 value
 ---
 int32 cmd_id
 bool is_moving

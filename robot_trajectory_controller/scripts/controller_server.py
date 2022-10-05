@@ -42,6 +42,8 @@ class ControllerServer():
         self._commander = None
         self.connect_move_group()
 
+        self._is_moving = False
+
         rospy.loginfo("Ready")
     
     def read_single_io(self, address, type):
@@ -75,6 +77,7 @@ class ControllerServer():
         # rospy.loginfo(req)
         res = ServerCommandResponse()
         res.cmd_id = req.cmd_id
+        res.is_moving = self._is_moving
         if req.type == ServerCommandRequest.GET_CURRENT_STATE:
             res.current_joints = self.get_current_joints()
             res.current_pose = self.get_current_ee_pose()
@@ -102,9 +105,12 @@ class ControllerServer():
             if self.write_single_io(req.io_address, req.io_value, WriteSingleIORequest.TYPE_RO) is False:
                 res_cmd_id = -req.cmd_id
         elif req.type == ServerCommandRequest.SET_VELOCITY:
-            res.speed = self.set_spped(0, req.speed);
+            self.set_speed(0, req.value)
         elif req.type == ServerCommandRequest.SET_ACCELRATION:
-            res.speed = self.set_spped(1, req.speed);
+            self.set_speed(1, req.value)
+        else:
+            rospy.loginfo('Command not found.')
+            res.cmd_id = -req.cmd_id
 
         return res
 
@@ -140,6 +146,7 @@ class ControllerServer():
         return self._commander.get_current_pose().pose
 
     def active_cb(self):
+        self._is_moving = True
         rospy.loginfo("Action server is processing the goal")
 
     def feedback_cb(self,feedback):
@@ -147,6 +154,7 @@ class ControllerServer():
         # rospy.loginfo(str(feedback))
 
     def done_cb(self,state,result):
+        self._is_moving_ = False
         rospy.loginfo("Action server is done. State: %s, result: %s" % (str(state), str(result.error_code)))
 
     def execute_plan(self):
@@ -197,11 +205,9 @@ class ControllerServer():
         if (speed > 1.0):
             speed = 1.0
         if (type == 0):
-            self_._commander.set_max_velocity_scaling_factor(speed)
-            return
+            self._commander.set_max_velocity_scaling_factor(speed)
         if (type == 1):
-            self_._commander.set_max_acceleration_scaling_factor(speed)
-            return
+            self._commander.set_max_acceleration_scaling_factor(speed)
 
 def main():
     cs = ControllerServer()
