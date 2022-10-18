@@ -43,6 +43,7 @@ class ControllerServer():
         self.connect_move_group()
 
         self._is_moving = False
+        self._cur_position = []
 
         rospy.loginfo("Ready")
     
@@ -74,7 +75,7 @@ class ControllerServer():
             return False
 
     def execute_command(self,req):
-        # rospy.loginfo(req)
+        rospy.loginfo(req)
         res = ServerCommandResponse()
         res.cmd_id = req.cmd_id
         res.is_moving = self._is_moving

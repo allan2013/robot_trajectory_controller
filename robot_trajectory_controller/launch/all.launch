@@ -1,0 +1,18 @@
+<launch>
+  <include file="$(find robot_trajectory_controller)/launch/robot_trajectory_controller.launch">
+  </include>
+
+  <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch" > 
+     <arg name="port" value="8080"/>
+  </include>
+
+  <!--
+  <node pkg="aliencontrol" type="aliencontrol" name="aliencontrol_top">
+    <param name="cmd" value="/home/wr-1604/wr-3d-camera-main/vnc.sh"/>
+  </node>
+  -->
+  
+  <!--
+  <node pkg="moveit_ros_visualization" type="moveit_joy.py" output="screen" name="moveit_joy"/>
+  -->
+</launch>
