@@ -3,6 +3,7 @@
 
 import sys
 import time
+import math
 import rospy
 import actionlib
 import std_msgs.msg
@@ -44,7 +45,53 @@ class ControllerServer():
 
         self._is_moving = False
 
+        # define joint constraints
+        # self.set_constraints()
+
         rospy.loginfo("Ready")
+
+    def clear_constraints(self):
+        self._commander.clear_path_constraints()
+
+    def set_constraints(self):
+        self.clear_constraints()
+        constraints = moveit_msgs.msg.Constraints()
+        j1 = moveit_msgs.msg.JointConstraint()
+        j1.joint_name = 'J1'
+        j1.position = 0.
+        j1.tolerance_above = math.pi/4.
+        j1.tolerance_below = math.pi/4.
+        j1.weight = 1.
+        constraints.joint_constraints.append(j1)
+        j2 = moveit_msgs.msg.JointConstraint()
+        j2.joint_name = 'J2'
+        j2.position = 0.
+        j2.tolerance_above = math.pi/4.
+        j2.tolerance_below = math.pi/4.
+        j2.weight = 1.
+        constraints.joint_constraints.append(j2)
+        j3 = moveit_msgs.msg.JointConstraint()
+        j3.joint_name = 'J3'
+        j3.position = 0.
+        j3.tolerance_above = math.pi/4.
+        j3.tolerance_below = math.pi/4.
+        j3.weight = 1.
+        constraints.joint_constraints.append(j3)
+        j4 = moveit_msgs.msg.JointConstraint()
+        j4.joint_name = 'J4'
+        j4.position = 0.
+        j4.tolerance_above = math.pi*120./180.
+        j4.tolerance_below = math.pi*120./180.
+        j4.weight = 1.
+        constraints.joint_constraints.append(j4)
+        j5 = moveit_msgs.msg.JointConstraint()
+        j5.joint_name = 'J5'
+        j5.position = 0.
+        j5.tolerance_above = math.pi*120./180.
+        j5.tolerance_below = math.pi*120./180.
+        j5.weight = 1.
+        constraints.joint_constraints.append(j5)
+        self._commander.set_path_constraints(constraints)
     
     def read_single_io(self, address, type):
         rospy.wait_for_service('read_single_io')
