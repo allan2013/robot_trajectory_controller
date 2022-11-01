@@ -26,6 +26,8 @@ class ControllerServer():
     def __init__(self):
         rospy.init_node('robot_trajectory_controller', anonymous=True)
         self._service = rospy.Service('server_command', ServerCommand, self.execute_command)
+        self._state_pub = rospy.Publisher('server_state', std_msgs.msg.Int16, latch=True)
+        self._state_pub.publish(std_msgs.msg.Int16(0))
 
         self._controller_name = '/arm_controller/follow_joint_trajectory'
 
@@ -135,6 +137,12 @@ class ControllerServer():
         elif req.type == ServerCommandRequest.MOVE_POSE:
             if self.move_pose(req.target_pose) is False:
                 res.cmd_id = -req.cmd_id
+        elif req.type == ServerCommandRequest.PLAN_JOINT:
+            if self.move_joints(req.target_joints, False) is False:
+                res.cmd_id = -req.cmd_id
+        elif req.type == ServerCommandRequest.PLAN_POSE:
+            if self.move_pose(req.target_pose, False) is False:
+                res.cmd_id = -req.cmd_id
         elif req.type == ServerCommandRequest.CANCEL_GOAL:
             if self.move_cancel() is False:
                 res.cmd_id = -req.cmd_id
@@ -170,7 +178,8 @@ class ControllerServer():
         self._commander = moveit_commander.MoveGroupCommander(robot_name)
         self._commander.set_planner_id('RRTConnect')
         self._commander.set_planning_time(10)
-        self._commander.set_num_planning_attempts(20)
+        #self._commander.set_num_planning_attempts(20)
+        self._commander.set_num_planning_attempts(5)
 
     def connect_servers(self):
         timeout = rospy.Duration(10)
@@ -195,6 +204,7 @@ class ControllerServer():
 
     def active_cb(self):
         self._is_moving = True
+        self._state_pub.publish(std_msgs.msg.Int16(1))
         rospy.loginfo("Action server is processing the goal")
 
     def feedback_cb(self,feedback):
@@ -203,15 +213,19 @@ class ControllerServer():
 
     def done_cb(self,state,result):
         self._is_moving_ = False
+        self._state_pub.publish(std_msgs.msg.Int16(0))
         rospy.loginfo("Action server is done. State: %s, result: %s" % (str(state), str(result.error_code)))
 
-    def execute_plan(self):
+    def execute_plan(self, execute=True):
         p = self._commander.plan()
         # print p
 
         if len(p.joint_trajectory.points) < 1:
             rospy.loginfo("Plan failed.")
             return False
+
+        if execute is False:
+            return True
         
         traj = p.joint_trajectory
         goal = FollowJointTrajectoryGoal()
@@ -235,13 +249,14 @@ class ControllerServer():
 
         return True
 
-    def move_joints(self, tj):
+    def move_joints(self, tj, execute=True):
         self._commander.set_joint_value_target(tj)
-        return self.execute_plan()
+        return self.execute_plan(execute)
 
-    def move_pose(self, tp):
+    def move_pose(self, tp, execute=True):
+        self._commander.set_pose_reference_frame('base_link')
         self._commander.set_pose_target(tp)
-        return self.execute_plan()
+        return self.execute_plan(execute)
 
     def move_cancel(self):
         self._trajectory_client.cancel_all_goals()
