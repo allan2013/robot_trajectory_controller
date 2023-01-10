@@ -17,10 +17,12 @@ from sensor_msgs.msg import JointState
 import threading
 import moveit_commander
 import moveit_msgs.msg
+from moveit_msgs.srv import GetPositionIK, GetPositionIKRequest, GetPositionIKResponse
 import geometry_msgs.msg
 import trajectory_msgs.msg
 from robot_trajectory_controller.srv import ServerCommand, ServerCommandRequest, ServerCommandResponse
 from fanuc_msgs.srv import ReadSingleIO, ReadSingleIORequest, WriteSingleIO, WriteSingleIORequest
+import copy
 
 class ControllerServer():
     def __init__(self):
@@ -44,6 +46,10 @@ class ControllerServer():
         self._scene = None
         self._commander = None
         self.connect_move_group()
+
+        # Connect to IK server
+        self._compute_ik_client = None
+        self.connect_ik_server()
 
         self._is_moving = False
         self._cur_position = []
@@ -162,8 +168,11 @@ class ControllerServer():
                 res_cmd_id = -req.cmd_id
         elif req.type == ServerCommandRequest.SET_VELOCITY:
             self.set_speed(0, req.value)
-        elif req.type == ServerCommandRequest.SET_ACCELRATION:
+        elif req.type == ServerCommandRequest.SET_ACCELERATION:
             self.set_speed(1, req.value)
+        elif req.type == ServerCommandRequest.MOVE_POSE_IK:
+            if self.move_pose_ik(req.target_pose) is False:
+                res.cmd_id = -req.cmd_id
         else:
             rospy.loginfo('Command not found.')
             res.cmd_id = -req.cmd_id
@@ -178,8 +187,8 @@ class ControllerServer():
         self._commander = moveit_commander.MoveGroupCommander(robot_name)
         self._commander.set_planner_id('RRTConnect')
         self._commander.set_planning_time(10)
-        #self._commander.set_num_planning_attempts(20)
-        self._commander.set_num_planning_attempts(5)
+        self._commander.set_num_planning_attempts(20)
+        #self._commander.set_num_planning_attempts(5)
 
     def connect_servers(self):
         timeout = rospy.Duration(10)
@@ -187,8 +196,71 @@ class ControllerServer():
         if not self._trajectory_client.wait_for_server(timeout):
             print("Could not reach controller action. Make sure that the driver is actually running.")
 
+    def connect_ik_server(self):
+        self._compute_ik_client = rospy.ServiceProxy('/compute_ik', GetPositionIK)
+        self._compute_ik_client.wait_for_service()
+
+    def compute_ik(self, pose):
+        req = GetPositionIKRequest()
+        req.ik_request.group_name = 'arm'
+        req.ik_request.pose_stamped.header.frame_id = '/base_link'
+        req.ik_request.pose_stamped.pose = pose
+        req.ik_request.timeout = rospy.Duration(0.01)
+        req.ik_request.attempts = 10
+        req.ik_request.avoid_collisions = False # True
+        try:
+            resp = self._compute_ik_client.call(req)
+            return resp
+        except rospy.ServiceException as e:
+            rospy.logerr("Service exception: " + str(e))
+            resp = GetPositionIKResponse()
+            resp.error_code = 99999  # Failure
+            return resp
+
+    def move_pose_ik(self, pose):
+        p = self.compute_ik(pose)
+        print p
+
+        if len(p.solution.joint_state.position) < 1:
+            rospy.loginfo("Plan failed.")
+            return False
+
+        goal = FollowJointTrajectoryGoal()
+        goal.trajectory.joint_names = self._joint_names # p.solution.joint_state.name
+        tp = trajectory_msgs.msg.JointTrajectoryPoint()
+        tp.positions = self._cur_position # p.solution.joint_state.position
+        goal.trajectory.points.append(tp)
+        tp2 = copy.deepcopy(tp)
+        tp2.positions = p.solution.joint_state.position
+        #tp2.time_from_start.secs = 1
+        tp2.time_from_start.nsecs = 100
+        goal.trajectory.points.append(tp2)
+        print goal
+
+        if self._is_moving is True:
+            rospy.loginfo("Moving")
+            return True
+
+        self._trajectory_client.send_goal(goal,
+                            active_cb = self.active_cb,
+                            feedback_cb = self.feedback_cb,
+                            done_cb = self.done_cb
+                            )
+
+        #rospy.loginfo("Goal has been sent to the action server.")
+        #if self._trajectory_client.wait_for_result():
+        #    result = self._trajectory_client.get_result()
+        #    if result.error_code != FollowJointTrajectoryResult.SUCCESSFUL:
+        #        rospy.loginfo("Execute plan failed: %s" % (result.error_string))
+        #        return False
+        #else:
+        #    return False
+
+        return True
+
     def joint_states_callback(self, msg):
         self.lock.acquire()
+        self._joint_names = msg.name
         self._cur_position = msg.position
         self.lock.release()
     
@@ -212,7 +284,7 @@ class ControllerServer():
         # rospy.loginfo(str(feedback))
 
     def done_cb(self,state,result):
-        self._is_moving_ = False
+        self._is_moving = False
         self._state_pub.publish(std_msgs.msg.Int16(0))
         rospy.loginfo("Action server is done. State: %s, result: %s" % (str(state), str(result.error_code)))
 
