@@ -6,6 +6,7 @@ import time
 import math
 import rospy
 import actionlib
+import tf
 import std_msgs.msg
 from control_msgs.msg import (
     FollowJointTrajectoryAction,
@@ -31,11 +32,19 @@ class ControllerServer():
         self._state_pub = rospy.Publisher('server_state', std_msgs.msg.Int16, latch=True)
         self._state_pub.publish(std_msgs.msg.Int16(0))
 
+        self._tf_listener = tf.TransformListener()
+
         self._controller_name = '/arm_controller/follow_joint_trajectory'
 
         self.lock = threading.Lock()
         self.thread = threading.Thread(target=self.joint_states_listener)
         self.thread.start()
+
+        # 存在検知装置をmonitorするthread
+        self.thread_estop_monitor = threading.Thread(target=self.estop_monitor)
+        self.thread_estop_monitor.start()
+        self.human_detect_enable = True
+        rospy.Subscriber("human_detect_enable", std_msgs.msg.Bool, self.human_detect_enable_callback)
 
         # Action Serverへ接続
         self._trajectory_client = None
@@ -45,6 +54,8 @@ class ControllerServer():
         self._robot = None
         self._scene = None
         self._commander = None
+        self.velocity_scaling_factor = 1.0
+        self.acceleration_scaling_factor = 1.0
         self.connect_move_group()
 
         # Connect to IK server
@@ -53,6 +64,7 @@ class ControllerServer():
 
         self._is_moving = False
         self._cur_position = []
+        self._skipped_goal = None
 
         # define joint constraints
         # self.set_constraints()
@@ -129,6 +141,81 @@ class ControllerServer():
             rospy.loginfo("ReadIo Failed.")
             return False
 
+    def human_detect_enable_callback(self, m):
+        self.human_detect_enable = m.data
+        rospy.loginfo("Human detect enable: " + str(self.human_detect_enable))
+
+    def estop_monitor(self):
+        rospy.wait_for_service('read_single_io')
+        client = rospy.ServiceProxy('read_single_io', ReadSingleIO)
+        rospy.wait_for_service('write_single_io')
+        wclient = rospy.ServiceProxy('write_single_io', WriteSingleIO)
+        prev_red = 0
+        prev_yellow = 0
+        while True:
+            try:
+                req = ReadSingleIORequest()
+                req.type = ReadSingleIORequest.TYPE_DI
+                req.address = 110
+                yellow = client(req).value
+                req.address = 108
+                red = client(req).value
+                if red == 1 and prev_red == 0:
+                    prev_red = 1
+                    wreq = WriteSingleIORequest()
+                    wreq.type = WriteSingleIORequest.TYPE_DO
+                    wreq.address = 101
+                    wreq.value = 0
+                    wclient(wreq)
+                    wreq.address = 102
+                    wreq.value = 1
+                    wclient(wreq)
+                    wreq.address = 103
+                    wreq.value = 0
+                    wclient(wreq)
+                    #wreq.address = 104
+                    #wreq.value = 1
+                    #wclient(wreq)
+                elif yellow == 1 and prev_yellow == 0:
+                    if self.human_detect_enable is True:
+                        self.move_cancel()
+                        self.set_speed(0, 0.05)
+                    prev_yellow = 1
+                    wreq = WriteSingleIORequest()
+                    wreq.type = WriteSingleIORequest.TYPE_DO
+                    wreq.address = 101
+                    wreq.value = 1
+                    wclient(wreq)
+                    wreq.address = 102
+                    wreq.value = 0
+                    wclient(wreq)
+                    wreq.address = 103
+                    wreq.value = 0
+                    wclient(wreq)
+                    #wreq.address = 104
+                    #wreq.value = 0
+                    #wclient(wreq)
+                elif yellow == 0 and red == 0 and (prev_yellow == 1 or prev_red == 1):
+                    prev_yellow = 0
+                    prev_red = 0
+                    wreq = WriteSingleIORequest()
+                    wreq.type = WriteSingleIORequest.TYPE_DO
+                    wreq.address = 101
+                    wreq.value = 1
+                    wclient(wreq)
+                    wreq.address = 102
+                    wreq.value = 1
+                    wclient(wreq)
+                    wreq.address = 103
+                    wreq.value = 1
+                    wclient(wreq)
+                    #wreq.address = 104
+                    #wreq.value = 0
+                    #wclient(wreq)
+            except rospy.ServiceException as e:
+                rospy.loginfo(e)
+            rospy.sleep(0.1)
+
     def execute_command(self,req):
         rospy.loginfo(req)
         res = ServerCommandResponse()
@@ -173,6 +260,12 @@ class ControllerServer():
         elif req.type == ServerCommandRequest.MOVE_POSE_IK:
             if self.move_pose_ik(req.target_pose) is False:
                 res.cmd_id = -req.cmd_id
+        elif req.type == ServerCommandRequest.PICK:
+            if self.pick() is False:
+                res.cmd_id = -req.cmd_id
+        elif req.type == ServerCommandRequest.PREPICK:
+            if self.pick(p = '/pre') is False:
+                res.cmd_id = -req.cmd_id
         else:
             rospy.loginfo('Command not found.')
             res.cmd_id = -req.cmd_id
@@ -205,7 +298,7 @@ class ControllerServer():
         req.ik_request.group_name = 'arm'
         req.ik_request.pose_stamped.header.frame_id = '/base_link'
         req.ik_request.pose_stamped.pose = pose
-        req.ik_request.timeout = rospy.Duration(0.01)
+        req.ik_request.timeout = rospy.Duration(1.0)
         req.ik_request.attempts = 10
         req.ik_request.avoid_collisions = False # True
         try:
@@ -219,26 +312,26 @@ class ControllerServer():
 
     def move_pose_ik(self, pose):
         p = self.compute_ik(pose)
-        print p
+        #print p
 
         if len(p.solution.joint_state.position) < 1:
             rospy.loginfo("Plan failed.")
             return False
 
         goal = FollowJointTrajectoryGoal()
-        goal.trajectory.joint_names = self._joint_names # p.solution.joint_state.name
+        goal.trajectory.joint_names = self._joint_names
         tp = trajectory_msgs.msg.JointTrajectoryPoint()
-        tp.positions = self._cur_position # p.solution.joint_state.position
+        tp.positions = self._cur_position
         goal.trajectory.points.append(tp)
         tp2 = copy.deepcopy(tp)
         tp2.positions = p.solution.joint_state.position
-        #tp2.time_from_start.secs = 1
         tp2.time_from_start.nsecs = 100
         goal.trajectory.points.append(tp2)
-        print goal
+        #print goal
 
         if self._is_moving is True:
             rospy.loginfo("Moving")
+            self._skipped_goal = goal
             return True
 
         self._trajectory_client.send_goal(goal,
@@ -287,10 +380,17 @@ class ControllerServer():
         self._is_moving = False
         self._state_pub.publish(std_msgs.msg.Int16(0))
         rospy.loginfo("Action server is done. State: %s, result: %s" % (str(state), str(result.error_code)))
+        if self._skipped_goal:
+            self._trajectory_client.send_goal(self._skipped_goal,
+                                              active_cb = self.active_cb,
+                                              feedback_cb = self.feedback_cb,
+                                              done_cb = self.done_cb
+            )
+            self._skipped_goal = None
 
     def execute_plan(self, execute=True):
         p = self._commander.plan()
-        # print p
+        #print p
 
         if len(p.joint_trajectory.points) < 1:
             rospy.loginfo("Plan failed.")
@@ -299,11 +399,15 @@ class ControllerServer():
         if execute is False:
             return True
         
-        traj = p.joint_trajectory
+        #traj = p.joint_trajectory
+        rospy.loginfo("Retime trajectory with scaling factor: " + str(self.velocity_scaling_factor))
+        traj = self._commander.retime_trajectory(self._robot.get_current_state(), p, self.velocity_scaling_factor).joint_trajectory
+
         goal = FollowJointTrajectoryGoal()
         goal.trajectory.joint_names = traj.joint_names
         goal.trajectory.points = traj.points
         
+        self._skipped_goal = None
         self._trajectory_client.send_goal(goal,
                             active_cb = self.active_cb,
                             feedback_cb = self.feedback_cb,
@@ -341,8 +445,29 @@ class ControllerServer():
             speed = 1.0
         if (type == 0):
             self._commander.set_max_velocity_scaling_factor(speed)
+            self.velocity_scaling_factor = speed
         if (type == 1):
             self._commander.set_max_acceleration_scaling_factor(speed)
+            self.acceleration_scaling_factor = speed
+
+    def pick(self, p = '/'):
+        self._commander.set_pose_reference_frame('base_link')
+        targets = []
+        for t in ('pick1', 'pick2', 'pick3', 'pick4'):
+            print p + t
+            try:
+                (trans, rot) = self._tf_listener.lookupTransform('/base_link', p + t, rospy.Time(0))
+                print trans + rot
+                targets.append(trans + rot)
+            except Exception as e:
+                print "lookup error"
+                print e
+                pass
+        print targets
+        if len(targets) == 0:
+            return False
+        self._commander.set_pose_targets(targets)
+        return self.execute_plan(True)
 
 def main():
     cs = ControllerServer()

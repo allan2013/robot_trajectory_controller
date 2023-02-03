@@ -11,6 +11,8 @@ uint8 SET_ACCELERATION=9
 uint8 PLAN_JOINT=10
 uint8 PLAN_POSE=11
 uint8 MOVE_POSE_IK=12
+uint8 PICK=13
+uint8 PREPICK=14
 int32 cmd_id
 int32 type
 float64[] target_joints
