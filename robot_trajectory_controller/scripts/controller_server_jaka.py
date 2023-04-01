@@ -22,8 +22,10 @@ from moveit_msgs.srv import GetPositionIK, GetPositionIKRequest, GetPositionIKRe
 import geometry_msgs.msg
 import trajectory_msgs.msg
 from robot_trajectory_controller.srv import ServerCommand, ServerCommandRequest, ServerCommandResponse
-from fanuc_msgs.srv import ReadSingleIO, ReadSingleIORequest, WriteSingleIO, WriteSingleIORequest
+#from fanuc_msgs.srv import ReadSingleIO, ReadSingleIORequest, WriteSingleIO, WriteSingleIORequest
+from jaka_msgs.srv import SetIO, SetIORequest, SetIOResponse, GetIO, GetIORequest, GetIOResponse
 import copy
+import numpy as np
 
 class ControllerServer():
     def __init__(self):
@@ -34,17 +36,17 @@ class ControllerServer():
 
         self._tf_listener = tf.TransformListener()
 
-        self._controller_name = '/arm_controller/follow_joint_trajectory'
+        self._controller_name = '/jaka_zu5_controller/follow_joint_trajectory'
 
         self.lock = threading.Lock()
         self.thread = threading.Thread(target=self.joint_states_listener)
         self.thread.start()
 
         # 存在検知装置をmonitorするthread
-        self.thread_estop_monitor = threading.Thread(target=self.estop_monitor)
-        self.thread_estop_monitor.start()
-        self.human_detect_enable = True
-        rospy.Subscriber("human_detect_enable", std_msgs.msg.Bool, self.human_detect_enable_callback)
+        #self.thread_estop_monitor = threading.Thread(target=self.estop_monitor)
+        #self.thread_estop_monitor.start()
+        #self.human_detect_enable = True
+        #rospy.Subscriber("human_detect_enable", std_msgs.msg.Bool, self.human_detect_enable_callback)
 
         # Action Serverへ接続
         self._trajectory_client = None
@@ -54,8 +56,8 @@ class ControllerServer():
         self._robot = None
         self._scene = None
         self._commander = None
-        self.velocity_scaling_factor = 1.0
-        self.acceleration_scaling_factor = 1.0
+        self.velocity_scaling_factor = 0.3
+        self.acceleration_scaling_factor = 0.3
         self.connect_move_group()
 
         # Connect to IK server
@@ -67,7 +69,7 @@ class ControllerServer():
         self._skipped_goal = None
 
         # define path constraints
-        self.set_constraints()
+        #self.set_constraints()
 
         rospy.loginfo("Ready")
 
@@ -123,31 +125,47 @@ class ControllerServer():
         #constraints.joint_constraints.append(j5)
         self._commander.set_path_constraints(constraints)
     
-    def read_single_io(self, address, type):
+    def read_single_io(self, index, type):
         rospy.wait_for_service('read_single_io')
         try:
-            client = rospy.ServiceProxy('read_single_io', ReadSingleIO)
-            req = ReadSingleIORequest()
+            client = rospy.ServiceProxy('read_single_io', GetIO)
+            req = GetIORequest()
             req.type = type
-            req.address = address
+            req.index = index
+            req.signal = 0
+            req.path = 0
             res = client(req)
             return res.value
         except rospy.ServiceException:
             rospy.loginfo("ReadIo Failed.")
             return None
     
-    def write_single_io(self, address, val, type):
-        rospy.wait_for_service('write_single_io')
+    def write_single_io(self, index, val, type):
+        rospy.wait_for_service('jaka_driver/set_io')
         try:
-            client = rospy.ServiceProxy('write_single_io', WriteSingleIO)
-            req = WriteSingleIORequest()
+            # client = rospy.ServiceProxy('write_single_io', WriteSingleIO)
+            # req = WriteSingleIORequest()
+            # req.type = type
+            # req.address = address
+            # req.value = val
+            # client(req)
+            # return True
+
+            client = rospy.ServiceProxy('jaka_driver/set_io', SetIO)
+            req = SetIORequest()
+            req.signal = 'digital'
+            req.index = index
             req.type = type
-            req.address = address
             req.value = val
-            client(req)
-            return True
-        except rospy.ServiceException:
-            rospy.loginfo("ReadIo Failed.")
+            res = client(req)
+            print("----------")
+            print(res)
+            return res.ret
+
+
+        except rospy.ServiceException as e:
+            print(e)
+            rospy.loginfo("write_single_io Failed.")
             return False
 
     def human_detect_enable_callback(self, m):
@@ -257,10 +275,10 @@ class ControllerServer():
             if res.io_value is None:
                 res_cmd_id = -req.cmd_id
         elif req.type == ServerCommandRequest.SET_DO:
-            if self.write_single_io(req.io_address, req.io_value, WriteSingleIORequest.TYPE_DO) is False:
+            if self.write_single_io(req.io_address, req.io_value, 0) is False:
                 res_cmd_id = -req.cmd_id
         elif req.type == ServerCommandRequest.SET_RO:
-            if self.write_single_io(req.io_address, req.io_value, WriteSingleIORequest.TYPE_RO) is False:
+            if self.write_single_io(req.io_address, req.io_value, 0) is False:
                 res_cmd_id = -req.cmd_id
         elif req.type == ServerCommandRequest.SET_VELOCITY:
             self.set_speed(0, req.value)
@@ -281,7 +299,7 @@ class ControllerServer():
 
         return res
 
-    def connect_move_group(self,robot_name='arm'):
+    def connect_move_group(self,robot_name='jaka_zu5'):
         # MoveGroupへ接続
         moveit_commander.roscpp_initialize(sys.argv)
         self._robot = moveit_commander.RobotCommander()
@@ -304,7 +322,7 @@ class ControllerServer():
 
     def compute_ik(self, pose):
         req = GetPositionIKRequest()
-        req.ik_request.group_name = 'arm'
+        req.ik_request.group_name = 'jaka_zu5'
         req.ik_request.pose_stamped.header.frame_id = '/base_link'
         req.ik_request.pose_stamped.pose = pose
         req.ik_request.timeout = rospy.Duration(1.0)
@@ -391,19 +409,51 @@ class ControllerServer():
         rospy.loginfo("Action server is done. State: %s, result: %s" % (str(state), str(result.error_code)))
         if self._skipped_goal:
             self._trajectory_client.send_goal(self._skipped_goal,
-                                              active_cb = self.active_cb,
-                                              feedback_cb = self.feedback_cb,
-                                              done_cb = self.done_cb
-            )
+                                              active_cb=self.active_cb,
+                                              feedback_cb=self.feedback_cb,
+                                              done_cb=self.done_cb)
             self._skipped_goal = None
+
+    def vel_check(self, traj):
+        vels_limit = np.array([1.57, 1.57, 1.57, 1.57, 1.57, 1.57])
+        if len(traj.points) < 1:
+            rospy.loginfo("traj is too short.")
+            return False
+        elif len(traj.points) == 2:
+            print(traj)
+
+        first = True
+        prev_point = traj.points[0]
+        for point in traj.points:
+            # point = trajectory_msgs.msg.JointTrajectoryPoint()
+            if first:
+                first = False
+                continue
+
+            delta_sec = point.time_from_start.to_sec() - prev_point.time_from_start.to_sec()
+            vels = (np.array(point.positions) - np.array(prev_point.positions)) / delta_sec
+            if not min(vels <= vels_limit):
+                rospy.loginfo("traj's vel limit is not protected.")
+                print(point.positions)
+                print(prev_point.positions)
+                print(delta_sec)
+                print(vels)
+                return False
+
+            prev_point = point
+
+        return True
+
 
     def execute_plan(self, execute=True):
         p = self._commander.plan()
         #print p
 
-        if len(p.joint_trajectory.points) < 1:
-            rospy.loginfo("Plan failed.")
-            return False
+        # while len(p.joint_trajectory.points) < 1:
+        while not self.vel_check(p.joint_trajectory):
+            rospy.loginfo("Re-planning.")
+            p = self._commander.plan()
+            rospy.timer.sleep(0.1)
 
         if execute is False:
             return True
@@ -411,6 +461,7 @@ class ControllerServer():
         #traj = p.joint_trajectory
         rospy.loginfo("Retime trajectory with scaling factor: " + str(self.velocity_scaling_factor))
         traj = self._commander.retime_trajectory(self._robot.get_current_state(), p, self.velocity_scaling_factor).joint_trajectory
+        # traj = self.scale_plan_vel(traj)
 
         goal = FollowJointTrajectoryGoal()
         goal.trajectory.joint_names = traj.joint_names
@@ -434,6 +485,21 @@ class ControllerServer():
 
         return True
 
+    def scale_plan_vel(self, traj, spd_ratio):
+        #print "scale_plan_vel!"
+        points_num = len(traj.points)
+        assert points_num > 0
+
+        new_traj = copy.deepcopy(traj)
+        for i in range(points_num):
+            new_traj.points[i].time_from_start = \
+                traj.points[i].time_from_start / spd_ratio
+            vel = [v * spd_ratio for v in traj.points[i].velocities]
+            acc = [a * spd_ratio for a in traj.points[i].accelerations]
+            new_traj.points[i].velocities = tuple(vel)
+            new_traj.points[i].accelerations = tuple(acc)
+        return new_traj
+
     def move_joints(self, tj, execute=True):
         self._commander.set_joint_value_target(tj)
         return self.execute_plan(execute)
@@ -442,6 +508,8 @@ class ControllerServer():
         self._commander.set_pose_reference_frame('base_link')
         self._commander.set_pose_target(tp)
         return self.execute_plan(execute)
+
+
 
     def move_cancel(self):
         self._trajectory_client.cancel_all_goals()

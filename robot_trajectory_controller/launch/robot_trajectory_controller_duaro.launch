@@ -1,0 +1,7 @@
+<launch>
+    <include file="$(find jaka_zu5_moveit_config)/launch/demo.launch">
+    </include>
+    <include file="$(find jaka_planner)/launch/moveit_server.launch">
+    </include>
+    <node name="robot_trajectory_controller" pkg="robot_trajectory_controller" type="controller_server_jaka.py" respawn="true" output="screen"/>
+</launch>

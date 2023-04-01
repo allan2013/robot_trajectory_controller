@@ -1,0 +1,3 @@
+<launch>
+    <node name="robot_trajectory_controller" pkg="robot_trajectory_controller" type="controller_server_jaka.py" respawn="true" output="screen"/>
+</launch>

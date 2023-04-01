@@ -23,15 +23,15 @@ def main():
         req.value = rospy.get_param('~vel', 0.8)
         res = client(req)
 
-        #req.type = ServerCommandRequest.GET_RI
-        #req.io_address = 1
-        #res = client(req)
-        #print(res.io_value)
+        req.type = ServerCommandRequest.GET_RI
+        req.io_address = 1
+        res = client(req)
+        print(res.io_value)
 
-        #req.type = ServerCommandRequest.SET_RO
-        #req.io_address = 1
-        #req.io_value = 0
-        #res = client(req)
+        req.type = ServerCommandRequest.SET_RO
+        req.io_address = 1
+        req.io_value = 0
+        res = client(req)
 
         val = rospy.get_param('~rotate', 60.0)
         print(val)

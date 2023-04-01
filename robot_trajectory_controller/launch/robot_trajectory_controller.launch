@@ -1,7 +1,7 @@
 <launch>
     <arg name="ip" default="192.168.1.100"/>
     <arg name="robot_type" default="CRX-10iA"/>
-    <arg name="license" default="/home/tokano/license.data"/>
+    <arg name="license" default="/home/wr-1604/license.data"/>
     <include file="$(find fanuc_ros_driver)/launch/fanuc_interface.launch">
         <arg name="ip" value="$(arg ip)"/>
         <arg name="robot_type" value="$(arg robot_type)"/>
@@ -28,5 +28,5 @@
         <arg name="debug" value="false"/>
     </include>
   
-    <node name="robot_trajectory_controller" pkg="robot_trajectory_controller" type="controller_server.py" output="screen"/>
+    <node name="robot_trajectory_controller" pkg="robot_trajectory_controller" type="controller_server.py" respawn="true" output="screen"/>
 </launch>

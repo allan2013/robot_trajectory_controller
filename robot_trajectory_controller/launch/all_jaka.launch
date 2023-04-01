@@ -1,6 +1,9 @@
 <launch>
-  <include file="$(find robot_trajectory_controller)/launch/robot_trajectory_controller.launch">
+  <include file="$(find robot_trajectory_controller)/launch/robot_trajectory_controller_jaka.launch">
   </include>
+
+  <include file="$(find jaka_driver)/launch/robot_star.launch">
+</include>
 
   <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch" > 
      <arg name="port" value="8080"/>
