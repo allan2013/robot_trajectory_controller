@@ -19,6 +19,7 @@ import threading
 import moveit_commander
 import moveit_msgs.msg
 from moveit_msgs.srv import GetPositionIK, GetPositionIKRequest, GetPositionIKResponse
+from moveit_msgs.srv import GetPositionFK, GetPositionFKRequest, GetPositionFKResponse
 import geometry_msgs.msg
 import trajectory_msgs.msg
 from robot_trajectory_controller.srv import ServerCommand, ServerCommandRequest, ServerCommandResponse
@@ -63,6 +64,9 @@ class ControllerServer():
         # Connect to IK server
         self._compute_ik_client = None
         self.connect_ik_server()
+
+        self._compute_fk_client = None
+        self.connect_fk_server()
 
         self._is_moving = False
         self._cur_position = []
@@ -310,6 +314,7 @@ class ControllerServer():
         self._commander.set_num_planning_attempts(20)
         #self._commander.set_num_planning_attempts(5)
 
+
     def connect_servers(self):
         timeout = rospy.Duration(10)
         self._trajectory_client = actionlib.SimpleActionClient(self._controller_name, FollowJointTrajectoryAction)
@@ -337,9 +342,27 @@ class ControllerServer():
             resp.error_code = 99999  # Failure
             return resp
 
+    def connect_fk_server(self):
+        self._compute_fk_client = rospy.ServiceProxy('/compute_fk', GetPositionFK)
+        self._compute_fk_client.wait_for_service()
+
+    def compute_fk(self, joint_value):
+        req = GetPositionFKRequest()
+        req.header.stamp = rospy.Time.now()
+        req.fk_link_names = self._robot.get_link_names('jaka_zu5')
+        req.robot_state =  self._robot.get_current_state()
+        req.robot_state.joint_state.position = joint_value
+        try:
+            resp = self._compute_fk_client.call(req)
+            return resp
+        except rospy.ServiceException as e:
+            rospy.logerr("Service exception: " + str(e))
+            resp = GetPositionFKResponse()
+            resp.error_code = 99999  # Failure
+            return resp
+
     def move_pose_ik(self, pose):
         p = self.compute_ik(pose)
-        #print p
 
         if len(p.solution.joint_state.position) < 1:
             rospy.loginfo("Plan failed.")
@@ -424,6 +447,7 @@ class ControllerServer():
 
         first = True
         prev_point = traj.points[0]
+        prev_point.positions = self._commander.get_current_joint_values()
         for point in traj.points:
             # point = trajectory_msgs.msg.JointTrajectoryPoint()
             if first:
@@ -431,9 +455,12 @@ class ControllerServer():
                 continue
 
             delta_sec = point.time_from_start.to_sec() - prev_point.time_from_start.to_sec()
+            if delta_sec == 0:
+                return False
+
             vels = (np.array(point.positions) - np.array(prev_point.positions)) / delta_sec
             if not min(vels <= vels_limit):
-                rospy.loginfo("traj's vel limit is not protected.")
+                rospy.loginfo("traj is beyond vel_limits.")
                 print(point.positions)
                 print(prev_point.positions)
                 print(delta_sec)
@@ -508,7 +535,6 @@ class ControllerServer():
         self._commander.set_pose_reference_frame('base_link')
         self._commander.set_pose_target(tp)
         return self.execute_plan(execute)
-
 
 
     def move_cancel(self):
