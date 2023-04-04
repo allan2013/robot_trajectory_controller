@@ -446,8 +446,8 @@ class ControllerServer():
             print(traj)
 
         first = True
+        traj.points[0].positions = self._commander.get_current_joint_values()
         prev_point = traj.points[0]
-        prev_point.positions = self._commander.get_current_joint_values()
         for point in traj.points:
             # point = trajectory_msgs.msg.JointTrajectoryPoint()
             if first:
