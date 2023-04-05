@@ -256,9 +256,11 @@ class ControllerServer():
             res.current_joints = self.get_current_joints()
             res.current_pose = self.get_current_ee_pose()
         elif req.type == ServerCommandRequest.MOVE_JOINT:
+            rospy.loginfo("############## MOVE_JOINT ##############")
             if self.move_joints(req.target_joints) is False:
                 res.cmd_id = -req.cmd_id
         elif req.type == ServerCommandRequest.MOVE_POSE:
+            rospy.loginfo("############## MOVE_POSE ##############")
             if self.move_pose(req.target_pose) is False:
                 res.cmd_id = -req.cmd_id
         elif req.type == ServerCommandRequest.PLAN_JOINT:
@@ -289,6 +291,7 @@ class ControllerServer():
         elif req.type == ServerCommandRequest.SET_ACCELERATION:
             self.set_speed(1, req.value)
         elif req.type == ServerCommandRequest.MOVE_POSE_IK:
+            rospy.loginfo("############## MOVE_POSE_IK ##############")
             if self.move_pose_ik(req.target_pose) is False:
                 res.cmd_id = -req.cmd_id
         elif req.type == ServerCommandRequest.PICK:
